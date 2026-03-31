@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"sync"
@@ -13,32 +15,106 @@ var (
 	WSPort = ":8081"
 )
 
+type MsgType string
+
+const (
+	MsgTypeBroadcast = "broadcast"
+)
+
+type Message struct {
+	MsgType MsgType
+	Data    string
+	Client  *Client
+}
+
 type Client struct {
-	ID   string
-	conn *websocket.Conn
+	ID     string
+	conn   *websocket.Conn
+	readCh chan *Message
 }
 
 type Server struct {
-	mu      *sync.RWMutex
-	clients map[*Client]bool
-	joinCh  chan *Client
-	leaveCh chan *Client
+	mu          *sync.RWMutex
+	clients     map[*Client]bool
+	joinCh      chan *Client
+	leaveCh     chan *Client
+	broadcastCh chan *Message
 }
 
 func NewServer() *Server {
 	return &Server{
-		mu:      new(sync.RWMutex),
-		clients: make(map[*Client]bool),
-		joinCh:  make(chan *Client, 128),
-		leaveCh: make(chan *Client, 128),
+		mu:          new(sync.RWMutex),
+		clients:     make(map[*Client]bool),
+		joinCh:      make(chan *Client, 128),
+		leaveCh:     make(chan *Client, 128),
+		broadcastCh: make(chan *Message, 128),
 	}
 }
 
 func NewClient(conn *websocket.Conn) *Client {
 	ID := uuid.New().String()
 	return &Client{
-		ID:   ID,
-		conn: conn,
+		ID:     ID,
+		conn:   conn,
+		readCh: make(chan *Message, 256),
+	}
+}
+
+func (c *Client) readMsg(srv *Server) {
+	defer func() {
+		c.conn.Close()
+		srv.leaveCh <- c
+	}()
+
+	for {
+		_, msg, err := c.conn.ReadMessage()
+		if err != nil {
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+				fmt.Printf("error reading message: %v", err)
+			}
+			break
+		}
+
+		message := new(Message)
+		err = json.Unmarshal(msg, message)
+		if err != nil {
+			fmt.Printf("unable to unmarshal message: %s\n", msg)
+			continue
+		}
+		srv.broadcastCh <- message
+	}
+}
+
+func (c *Client) writeMsg() {
+	defer c.conn.Close()
+
+	for msg := range c.readCh {
+		data, err := json.Marshal(msg)
+		if err != nil {
+			log.Printf("error marshaling message: %v\n", err)
+			continue
+		}
+		err = c.conn.WriteMessage(websocket.TextMessage, data)
+		if err != nil {
+			log.Printf("error writing message: %v", err)
+			break
+		}
+	}
+}
+
+func (s *Server) broadcastLoop() {
+	for msg := range s.broadcastCh {
+		msg.Data = fmt.Sprintf("[%s] %s", msg.Client.ID, msg.Data)
+
+		s.mu.RLock()
+		for client := range s.clients {
+			select {
+			case client.readCh <- msg:
+			default:
+				close(client.readCh)
+				s.removeClient(client)
+			}
+		}
 	}
 }
 
@@ -59,6 +135,9 @@ func (s *Server) handleWs(w http.ResponseWriter, r *http.Request) {
 
 	client := NewClient(conn)
 	s.joinCh <- client
+
+	go client.readMsg(s)
+	go client.writeMsg()
 }
 
 func (s *Server) AcceptLoop() {
@@ -96,6 +175,7 @@ func createWSServer() {
 	log.Printf("Starting the server on port %s", WSPort)
 
 	go server.AcceptLoop()
+	go server.broadcastLoop()
 
 	log.Fatal(http.ListenAndServe(WSPort, nil))
 }
