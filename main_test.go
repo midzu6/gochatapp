@@ -2,7 +2,8 @@ package main
 
 import (
 	"fmt"
-	"log"
+	"net/http"
+	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
@@ -10,41 +11,56 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-var (
-	host = "ws://localhost"
-)
+func TestConnection(t *testing.T) {
+	// create server
+	server := NewServer()
 
-type TestConfig struct {
-	ConnectionCount int
-	wg              *sync.WaitGroup
-}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ws", server.handleWs)
+	testServer := httptest.NewServer(mux)
 
-func DialServer(wg *sync.WaitGroup) {
-	dialer := websocket.DefaultDialer
+	defer testServer.Close()
 
-	conn, _, err := dialer.Dial(fmt.Sprintf("%s%s", host, WSPort), nil)
-	if err != nil {
-		log.Fatal("error: ", err)
+	// http to ws
+	wsURL := "ws" + testServer.URL[4:] + "/ws"
+
+	// parameters
+	connCount := 3
+	wg := &sync.WaitGroup{}
+	errCh := make(chan error, connCount)
+
+	for i := 0; i < connCount; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+
+			conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+
+			if err != nil {
+				errCh <- fmt.Errorf("connection %d failed: %w", id, err)
+				return
+			}
+			defer conn.Close()
+
+			time.Sleep(100 * time.Millisecond)
+		}(i)
 	}
-	defer func() {
-		wg.Done()
-		conn.Close()
+
+	go func() {
+		wg.Wait()
+		close(errCh)
 	}()
 
-	log.Println("connected to the server ", conn.LocalAddr().String())
-
-	time.Sleep(time.Second)
-}
-
-func TestConnection(t *testing.T) {
-	go createWSServer()
-	time.Sleep(time.Second)
-
-	tc := TestConfig{ConnectionCount: 3, wg: &sync.WaitGroup{}}
-
-	for range tc.ConnectionCount {
-		tc.wg.Add(1)
-		go DialServer(tc.wg)
+	for err := range errCh {
+		t.Error(err)
 	}
-	tc.wg.Wait()
+
+	server.mu.RLock()
+	actualConnectionCount := len(server.clients)
+	server.mu.RUnlock()
+
+	if actualConnectionCount != connCount {
+		t.Errorf("Expected %d clients, got %d", connCount, actualConnectionCount)
+	}
+
 }
