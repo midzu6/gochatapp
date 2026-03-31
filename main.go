@@ -62,12 +62,16 @@ func (s *Server) handleWs(w http.ResponseWriter, r *http.Request) {
 	s.clients[client] = true
 }
 
-func main() {
-
+func createWSServer() {
 	server := NewServer()
 
 	http.HandleFunc("/", server.handleWs)
 
-	log.Fatal(http.ListenAndServe(WSPort, nil))
+	log.Printf("Starting the server on port %s", WSPort)
 
+	log.Fatal(http.ListenAndServe(WSPort, nil))
+}
+
+func main() {
+	createWSServer()
 }
