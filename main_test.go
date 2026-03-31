@@ -62,5 +62,4 @@ func TestConnection(t *testing.T) {
 	if actualConnectionCount != connCount {
 		t.Errorf("Expected %d clients, got %d", connCount, actualConnectionCount)
 	}
-
 }
