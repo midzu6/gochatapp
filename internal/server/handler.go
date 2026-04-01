@@ -18,11 +18,11 @@ func (s *Server) HandleWS(w http.ResponseWriter, r *http.Request) {
 		log.Printf("unexpected error, err %v\n", err)
 		return
 	}
-	defer conn.Close()
 
-	client := c.NewClient(conn)
+	client := c.NewClient(conn, s.broadcast, s.leaveCh)
 	s.joinCh <- client
-
 	// add client's methods
 
+	go client.WritePump()
+	go client.ReadPump()
 }
