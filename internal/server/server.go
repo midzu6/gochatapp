@@ -1,32 +1,64 @@
 package server
 
 import (
-	c "gochatapp/internal/client"
+	client "gochatapp/internal/client"
 	"log"
 	"sync"
 )
 
 type Server struct {
 	mu        *sync.RWMutex
-	broadcast chan *c.Message
-	joinCh    chan *c.Client
-	leaveCh   chan *c.Client
-	clients   map[*c.Client]bool
+	broadcast chan *client.Message
+	joinCh    chan *client.Client
+	leaveCh   chan *client.Client
+	clients   map[*client.Client]bool
 }
 
 func NewServer() *Server {
 	return &Server{
 		mu:        new(sync.RWMutex),
-		clients:   make(map[*c.Client]bool),
-		joinCh:    make(chan *c.Client, 128),
-		leaveCh:   make(chan *c.Client, 128),
-		broadcast: make(chan *c.Message, 128),
+		clients:   make(map[*client.Client]bool),
+		joinCh:    make(chan *client.Client, 128),
+		leaveCh:   make(chan *client.Client, 128),
+		broadcast: make(chan *client.Message, 128),
 	}
 }
 
-func (s *Server) AddClient(client *c.Client) {
+func (s *Server) run() {
+	for {
+		select {
+		case c := <-s.joinCh:
+			s.addClient(c)
+		case c := <-s.leaveCh:
+			s.removeClient(c)
+		case message := <-s.broadcast:
+			s.mu.RLock()
+			for c := range s.clients {
+				select {
+				case c.MessagesCh <- message:
+				default:
+					s.removeClient(c)
+					log.Printf("channel is full, remove client with id %s\n", c.ID)
+				}
+			}
+			s.mu.RUnlock()
+		}
+	}
+}
+
+func (s *Server) addClient(client *client.Client) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.clients[client] = true
 	log.Printf("client %s joined to the server\n", client.ID)
+}
+
+func (s *Server) removeClient(client *client.Client) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.clients[client]; ok {
+		delete(s.clients, client)
+		close(client.MessagesCh)
+		log.Printf("client %s leaved the server\n", client.ID)
+	}
 }
