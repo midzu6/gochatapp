@@ -79,12 +79,18 @@ func (c *Client) WritePump(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+			c.conn.WriteMessage(
+				websocket.CloseMessage,
+				websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
+			)
 			return
 		case message, ok := <-c.MessagesCh:
 			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if !ok {
-				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+				c.conn.WriteMessage(
+					websocket.CloseMessage,
+					websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
+				)
 				return
 			}
 			w, err := c.conn.NextWriter(websocket.TextMessage)

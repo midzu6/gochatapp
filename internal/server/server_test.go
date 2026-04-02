@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	client "gochatapp/internal/client"
 	"testing"
 	"time"
@@ -9,7 +10,9 @@ import (
 )
 
 func TestCreateServer(t *testing.T) {
-	server := NewServer()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	server := NewServer(ctx)
 	assert.NotNil(t, server.mu)
 	assert.NotNil(t, server.clients)
 	assert.NotNil(t, server.broadcast)
@@ -18,7 +21,9 @@ func TestCreateServer(t *testing.T) {
 }
 
 func TestAddClient(t *testing.T) {
-	server := NewServer()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	server := NewServer(ctx)
 	c := client.NewClient(
 		nil,
 		make(chan<- *client.Message, 128),
@@ -33,7 +38,9 @@ func TestAddClient(t *testing.T) {
 }
 
 func TestRemoveClient(t *testing.T) {
-	s := NewServer()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s := NewServer(ctx)
 	c := client.NewClient(
 		nil,
 		make(chan<- *client.Message, 128),
@@ -58,14 +65,16 @@ func TestRemoveClient(t *testing.T) {
 }
 
 func TestServerRun_Join(t *testing.T) {
-	s := NewServer()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s := NewServer(ctx)
 	c := client.NewClient(
 		nil,
 		make(chan<- *client.Message, 128),
 		make(chan<- *client.Client, 128),
 		256,
 	)
-	go s.run()
+	go s.Run()
 
 	s.joinCh <- c
 
@@ -79,14 +88,16 @@ func TestServerRun_Join(t *testing.T) {
 }
 
 func TestServerRun_Leave(t *testing.T) {
-	s := NewServer()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s := NewServer(ctx)
 	c := client.NewClient(
 		nil,
 		make(chan<- *client.Message, 128),
 		make(chan<- *client.Client, 128),
 		256,
 	)
-	go s.run()
+	go s.Run()
 
 	s.joinCh <- c
 	time.Sleep(10 * time.Millisecond)
@@ -101,14 +112,16 @@ func TestServerRun_Leave(t *testing.T) {
 }
 
 func TestServerRun_Broadcast(t *testing.T) {
-	s := NewServer()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s := NewServer(ctx)
 	c := client.NewClient(
 		nil,
 		make(chan<- *client.Message, 128),
 		make(chan<- *client.Client, 128),
 		256,
 	)
-	go s.run()
+	go s.Run()
 
 	s.joinCh <- c
 	time.Sleep(10 * time.Millisecond)
@@ -121,14 +134,16 @@ func TestServerRun_Broadcast(t *testing.T) {
 }
 
 func TestRun_Broadcast_ClientBufferIsFull(t *testing.T) {
-	s := NewServer()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s := NewServer(ctx)
 	c := client.NewClient(
 		nil,
 		make(chan<- *client.Message, 256),
 		make(chan<- *client.Client, 128),
 		1,
 	)
-	go s.run()
+	go s.Run()
 	s.joinCh <- c
 	time.Sleep(10 * time.Millisecond)
 	s.broadcast <- &client.Message{Text: "hello"}
