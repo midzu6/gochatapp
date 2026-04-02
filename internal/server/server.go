@@ -32,16 +32,22 @@ func (s *Server) run() {
 		case c := <-s.leaveCh:
 			s.removeClient(c)
 		case message := <-s.broadcast:
+			var toRemove []*client.Client
+
 			s.mu.RLock()
 			for c := range s.clients {
 				select {
 				case c.MessagesCh <- message:
 				default:
-					s.removeClient(c)
-					log.Printf("channel is full, remove client with id %s\n", c.ID)
+					toRemove = append(toRemove, c)
 				}
 			}
 			s.mu.RUnlock()
+
+			for _, c := range toRemove {
+				s.removeClient(c)
+				log.Printf("channel is full, remove client with id %s\n", c.ID)
+			}
 		}
 	}
 }
