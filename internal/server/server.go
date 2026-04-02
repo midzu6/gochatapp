@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	client "gochatapp/internal/client"
 	"log"
 	"sync"
@@ -12,21 +13,31 @@ type Server struct {
 	joinCh    chan *client.Client
 	leaveCh   chan *client.Client
 	clients   map[*client.Client]bool
+	ctx       context.Context
 }
 
-func NewServer() *Server {
+func NewServer(ctx context.Context) *Server {
 	return &Server{
 		mu:        new(sync.RWMutex),
 		clients:   make(map[*client.Client]bool),
 		joinCh:    make(chan *client.Client, 128),
 		leaveCh:   make(chan *client.Client, 128),
 		broadcast: make(chan *client.Message, 128),
+		ctx:       ctx,
 	}
 }
 
-func (s *Server) run() {
+func (s *Server) Run() {
 	for {
 		select {
+		case <-s.ctx.Done():
+			s.mu.Lock()
+			for c := range s.clients {
+				close(c.MessagesCh)
+				delete(s.clients, c)
+			}
+			s.mu.Unlock()
+			return
 		case c := <-s.joinCh:
 			s.addClient(c)
 		case c := <-s.leaveCh:

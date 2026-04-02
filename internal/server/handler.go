@@ -21,8 +21,7 @@ func (s *Server) HandleWS(w http.ResponseWriter, r *http.Request) {
 
 	client := c.NewClient(conn, s.broadcast, s.leaveCh, 256)
 	s.joinCh <- client
-	// add client's methods
 
-	go client.WritePump()
+	go client.WritePump(s.ctx)
 	go client.ReadPump()
 }

@@ -2,10 +2,18 @@ package client
 
 import (
 	"bytes"
+	"context"
 	"log"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+)
+
+const (
+	writeWait  = 3 * time.Second
+	pongWait   = 3 * time.Second
+	pingPeriod = (pongWait * 9) / 10
 )
 
 var (
@@ -32,19 +40,17 @@ func NewClient(conn *websocket.Conn, br chan<- *Message, lv chan<- *Client, bufS
 	}
 }
 
-/*
-Клиент A пишет сообщение
-    → ReadPump A → broadcast канал сервера
-        → Server.run() рассылает по всем clients
-            → пишет в WriteCh каждого клиента
-                → WritePump каждого клиента читает из WriteCh
-                    → отправляет по WebSocket
-*/
-
 func (c *Client) ReadPump() {
 	defer func() {
 		c.leave <- c
 	}()
+
+	c.conn.SetReadDeadline(time.Now().Add(pongWait))
+	c.conn.SetPongHandler(func(appData string) error {
+		log.Printf("pong recieved\n")
+		c.conn.SetReadDeadline(time.Now().Add(pongWait))
+		return nil
+	})
 
 	for {
 		_, message, err := c.conn.ReadMessage()
@@ -62,14 +68,21 @@ func (c *Client) ReadPump() {
 	}
 }
 
-func (c *Client) WritePump() {
+func (c *Client) WritePump(ctx context.Context) {
+
+	ticker := time.NewTicker(pingPeriod)
 	defer func() {
 		c.conn.Close()
+		ticker.Stop()
 	}()
 
 	for {
 		select {
+		case <-ctx.Done():
+			c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+			return
 		case message, ok := <-c.MessagesCh:
+			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if !ok {
 				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
@@ -96,6 +109,11 @@ func (c *Client) WritePump() {
 				}
 			}
 			if err = w.Close(); err != nil {
+				return
+			}
+		case <-ticker.C:
+			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return
 			}
 		}
