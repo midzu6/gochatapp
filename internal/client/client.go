@@ -21,11 +21,11 @@ type Client struct {
 	conn       *websocket.Conn
 }
 
-func NewClient(conn *websocket.Conn, br chan<- *Message, lv chan<- *Client) *Client {
+func NewClient(conn *websocket.Conn, br chan<- *Message, lv chan<- *Client, bufSize int) *Client {
 	ID := uuid.New().String()
 	return &Client{
 		ID:         ID,
-		MessagesCh: make(chan *Message, 256),
+		MessagesCh: make(chan *Message, bufSize),
 		broadcast:  br,
 		leave:      lv,
 		conn:       conn,

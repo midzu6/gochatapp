@@ -19,7 +19,7 @@ func (s *Server) HandleWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client := c.NewClient(conn, s.broadcast, s.leaveCh)
+	client := c.NewClient(conn, s.broadcast, s.leaveCh, 256)
 	s.joinCh <- client
 	// add client's methods
 
